@@ -1,0 +1,12 @@
+services:
+  sgc-monitor:
+    build: .
+    container_name: sismoalerta-sgc-monitor
+    restart: unless-stopped
+    volumes:
+      - ./known_sismos.json:/usr/src/app/known_sismos.json
+      - ./serviceAccountKey.json:/usr/src/app/serviceAccountKey.json:ro
+    environment:
+      - POLL_INTERVAL_MS=30000
+      - MIN_MAGNITUDE=2.0
+      - GOOGLE_APPLICATION_CREDENTIALS=/usr/src/app/serviceAccountKey.json

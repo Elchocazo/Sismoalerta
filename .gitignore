@@ -22,6 +22,8 @@ app/release/
 release/
 google-services.json
 app/google-services.json
-
-
-
+serviceAccountKey.json
+**/serviceAccountKey.json
+known_sismos.json
+**/node_modules/
+backend/functions/node_modules/

@@ -215,6 +215,11 @@ fun MainAppContent(viewModel: MainViewModel) {
     val customToneTitle by viewModel.customToneTitle.collectAsStateWithLifecycle()
     val profileSyncVersion by viewModel.profileSyncVersion.collectAsStateWithLifecycle()
 
+    val minAlertMagnitude by viewModel.minAlertMagnitude.collectAsStateWithLifecycle()
+    val maxAlertDistanceKm by viewModel.maxAlertDistanceKm.collectAsStateWithLifecycle()
+    val isAudioAlertEnabled by viewModel.isAudioAlertEnabled.collectAsStateWithLifecycle()
+    val isVibrationAlertEnabled by viewModel.isVibrationAlertEnabled.collectAsStateWithLifecycle()
+
     val isRefreshingDashboard by viewModel.isRefreshingDashboard.collectAsStateWithLifecycle()
     val isRefreshingFamily by viewModel.isRefreshingFamily.collectAsStateWithLifecycle()
     val isRefreshingProfile by viewModel.isRefreshingProfile.collectAsStateWithLifecycle()
@@ -403,6 +408,14 @@ fun MainAppContent(viewModel: MainViewModel) {
                     onSetCustomTone = { uriStr, title -> viewModel.setCustomTone(uriStr, title) },
                     isDrillActive = isDrillActive,
                     drillProgressMessage = drillProgressMessage,
+                    minMagnitude = minAlertMagnitude,
+                    onSetMinMagnitude = { viewModel.setMinAlertMagnitude(it) },
+                    maxDistanceKm = maxAlertDistanceKm,
+                    onSetMaxDistanceKm = { viewModel.setMaxAlertDistanceKm(it) },
+                    isAudioAlertEnabled = isAudioAlertEnabled,
+                    onToggleAudioAlert = { viewModel.setAudioAlertEnabled(it) },
+                    isVibrationAlertEnabled = isVibrationAlertEnabled,
+                    onToggleVibrationAlert = { viewModel.setVibrationAlertEnabled(it) },
                     isRefreshing = isRefreshingSettings,
                     onRefreshSettings = { viewModel.refreshSettings() },
                     onStartDrill = { viewModel.startDrillSimulation() },

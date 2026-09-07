@@ -54,8 +54,20 @@ class SismoAlertaApp : Application() {
         familyRepository = FamilyRepository(this, database)
         settingsRepository = SettingsRepository(this)
 
-        // Iniciar inmediatamente la vigilancia resiliente 24/7 en segundo plano
-        com.example.receiver.SeismicAlarmReceiver.schedulePeriodicCheck(this)
+        // Suscripción al canal Push prioritario de alertas sísmicas (FCM)
+        try {
+            com.example.service.SismoFirebaseMessagingService.subscribeToTopic()
+        } catch (e: Exception) {
+            android.util.Log.w("SismoAlertaApp", "Error al iniciar suscripción FCM: ${e.message}")
+        }
+
+        // Programar sincronización periódica de respaldo con WorkManager (amigable con la batería)
+        try {
+            com.example.worker.SeismicCheckWorker.schedulePeriodicCheck(this)
+        } catch (e: Exception) {
+            android.util.Log.w("SismoAlertaApp", "Error al programar WorkManager: ${e.message}")
+        }
+
 
         // Purge legacy demo contacts and mock seismic events for production readiness
         CoroutineScope(Dispatchers.IO).launch {

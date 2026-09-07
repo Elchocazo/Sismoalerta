@@ -15,8 +15,10 @@ class BootReceiver : BroadcastReceiver() {
             intent.action == Intent.ACTION_MY_PACKAGE_REPLACED ||
             intent.action == "android.intent.action.QUICKBOOT_POWERON"
         ) {
-            // 1. Armar el receptor de alarmas 24/7 inmediatamente
-            SeismicAlarmReceiver.schedulePeriodicCheck(context)
+            // 1. Re-suscribir a FCM y programar WorkManager de respaldo tras encendido
+            com.example.service.SismoFirebaseMessagingService.subscribeToTopic()
+            com.example.worker.SeismicCheckWorker.schedulePeriodicCheck(context)
+
 
             // 2. Iniciar el servicio de monitoreo en primer plano si cuenta con permisos
             val hasLocation = ContextCompat.checkSelfPermission(

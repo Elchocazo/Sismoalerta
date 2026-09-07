@@ -81,6 +81,12 @@ class MainViewModel(
     val customToneUri: StateFlow<String?> = settingsRepo.customToneUri
     val customToneTitle: StateFlow<String> = settingsRepo.customToneTitle
 
+    val minAlertMagnitude: StateFlow<Double> = settingsRepo.minAlertMagnitude
+    val maxAlertDistanceKm: StateFlow<Double> = settingsRepo.maxAlertDistanceKm
+    val isAudioAlertEnabled: StateFlow<Boolean> = settingsRepo.isAudioAlertEnabled
+    val isVibrationAlertEnabled: StateFlow<Boolean> = settingsRepo.isVibrationAlertEnabled
+
+
     val currentLocation: StateFlow<Location?> = locationRepo.currentLocation
     val isServiceRunning: StateFlow<Boolean> = SeismicMonitoringService.isServiceRunning
     val liveMagnitude: StateFlow<Float> = SeismicMonitoringService.liveMagnitude
@@ -538,6 +544,23 @@ class MainViewModel(
     fun setCustomTone(uriString: String?, title: String) {
         settingsRepo.setCustomTone(uriString, title)
     }
+
+    fun setMinAlertMagnitude(mag: Double) {
+        settingsRepo.setMinAlertMagnitude(mag)
+    }
+
+    fun setMaxAlertDistanceKm(distKm: Double) {
+        settingsRepo.setMaxAlertDistanceKm(distKm)
+    }
+
+    fun setAudioAlertEnabled(enabled: Boolean) {
+        settingsRepo.setAudioAlertEnabled(enabled)
+    }
+
+    fun setVibrationAlertEnabled(enabled: Boolean) {
+        settingsRepo.setVibrationAlertEnabled(enabled)
+    }
+
 
     class Factory(
         private val seismicRepo: SeismicRepository,

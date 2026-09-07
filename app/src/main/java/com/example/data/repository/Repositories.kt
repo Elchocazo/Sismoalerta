@@ -246,6 +246,48 @@ class SettingsRepository(private val context: Context) {
     private val _customToneTitle = MutableStateFlow(prefs.getString("custom_tone_title", "Tono Nativo del Dispositivo") ?: "Tono Nativo del Dispositivo")
     val customToneTitle: StateFlow<String> = _customToneTitle.asStateFlow()
 
+    // Configuración de Umbrales de Alertas Sísmicas (FCM / Segundo Plano)
+    private val _minAlertMagnitude = MutableStateFlow(prefs.getFloat("min_alert_magnitude", 3.5f).toDouble())
+    val minAlertMagnitude: StateFlow<Double> = _minAlertMagnitude.asStateFlow()
+
+    private val _maxAlertDistanceKm = MutableStateFlow(prefs.getFloat("max_alert_distance_km", 350.0f).toDouble())
+    val maxAlertDistanceKm: StateFlow<Double> = _maxAlertDistanceKm.asStateFlow()
+
+    private val _isAudioAlertEnabled = MutableStateFlow(prefs.getBoolean("is_audio_alert_enabled", true))
+    val isAudioAlertEnabled: StateFlow<Boolean> = _isAudioAlertEnabled.asStateFlow()
+
+    private val _isVibrationAlertEnabled = MutableStateFlow(prefs.getBoolean("is_vibration_alert_enabled", true))
+    val isVibrationAlertEnabled: StateFlow<Boolean> = _isVibrationAlertEnabled.asStateFlow()
+
+    fun setMinAlertMagnitude(mag: Double) {
+        prefs.edit().putFloat("min_alert_magnitude", mag.toFloat()).apply()
+        _minAlertMagnitude.value = mag
+    }
+
+    fun setMaxAlertDistanceKm(distKm: Double) {
+        prefs.edit().putFloat("max_alert_distance_km", distKm.toFloat()).apply()
+        _maxAlertDistanceKm.value = distKm
+    }
+
+    fun setAudioAlertEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("is_audio_alert_enabled", enabled).apply()
+        _isAudioAlertEnabled.value = enabled
+    }
+
+    fun setVibrationAlertEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("is_vibration_alert_enabled", enabled).apply()
+        _isVibrationAlertEnabled.value = enabled
+    }
+
+    fun getSeismicAlertFilter(): com.example.data.model.SeismicAlertFilter {
+        return com.example.data.model.SeismicAlertFilter(
+            minMagnitude = _minAlertMagnitude.value,
+            maxDistanceKm = _maxAlertDistanceKm.value,
+            isAudioEnabled = _isAudioAlertEnabled.value,
+            isVibrationEnabled = _isVibrationAlertEnabled.value
+        )
+    }
+
     fun setHighContrast(enabled: Boolean) {
         prefs.edit().putBoolean("high_contrast", enabled).apply()
         _isHighContrast.value = enabled
@@ -277,3 +319,4 @@ class SettingsRepository(private val context: Context) {
         _customToneTitle.value = title
     }
 }
+

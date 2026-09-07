@@ -88,6 +88,14 @@ fun SettingsScreen(
     onSetCustomTone: (String?, String) -> Unit = { _, _ -> },
     isDrillActive: Boolean = false,
     drillProgressMessage: String? = null,
+    minMagnitude: Double = 3.5,
+    onSetMinMagnitude: (Double) -> Unit = {},
+    maxDistanceKm: Double = 350.0,
+    onSetMaxDistanceKm: (Double) -> Unit = {},
+    isAudioAlertEnabled: Boolean = true,
+    onToggleAudioAlert: (Boolean) -> Unit = {},
+    isVibrationAlertEnabled: Boolean = true,
+    onToggleVibrationAlert: (Boolean) -> Unit = {},
     isRefreshing: Boolean = false,
     onRefreshSettings: () -> Unit = {},
     onStartDrill: () -> Unit = {},
@@ -165,7 +173,15 @@ fun SettingsScreen(
                     onSetAlarmToneIndex = onSetAlarmToneIndex,
                     customToneUri = customToneUri,
                     customToneTitle = customToneTitle,
-                    onSetCustomTone = onSetCustomTone
+                    onSetCustomTone = onSetCustomTone,
+                    minMagnitude = minMagnitude,
+                    onSetMinMagnitude = onSetMinMagnitude,
+                    maxDistanceKm = maxDistanceKm,
+                    onSetMaxDistanceKm = onSetMaxDistanceKm,
+                    isAudioAlertEnabled = isAudioAlertEnabled,
+                    onToggleAudioAlert = onToggleAudioAlert,
+                    isVibrationAlertEnabled = isVibrationAlertEnabled,
+                    onToggleVibrationAlert = onToggleVibrationAlert
                 )
                 1 -> DrillModeScreen(
                     isDrillActive = isDrillActive,
@@ -218,7 +234,15 @@ fun AudioAlertsTab(
     onSetAlarmToneIndex: (Int) -> Unit = {},
     customToneUri: String? = null,
     customToneTitle: String = "Tono Nativo del Dispositivo",
-    onSetCustomTone: (String?, String) -> Unit = { _, _ -> }
+    onSetCustomTone: (String?, String) -> Unit = { _, _ -> },
+    minMagnitude: Double = 3.5,
+    onSetMinMagnitude: (Double) -> Unit = {},
+    maxDistanceKm: Double = 350.0,
+    onSetMaxDistanceKm: (Double) -> Unit = {},
+    isAudioAlertEnabled: Boolean = true,
+    onToggleAudioAlert: (Boolean) -> Unit = {},
+    isVibrationAlertEnabled: Boolean = true,
+    onToggleVibrationAlert: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     var isTestingAudio by remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -244,6 +268,265 @@ fun AudioAlertsTab(
     }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // --- 1. UMBRALES Y FILTROS SÍSMICOS EN SEGUNDO PLANO ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF2563EB).copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            tint = Color(0xFF38BDF8),
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Filtros de Alerta Sísmica 24/7",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Solo te despertará si el sismo supera estos umbrales",
+                                fontSize = 11.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Magnitud mínima
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Magnitud mínima:",
+                            fontSize = 13.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Surface(
+                            color = Color(0xFF2563EB).copy(alpha = 0.25f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "≥ ${String.format(java.util.Locale.US, "%.1f", minMagnitude)} M",
+                                color = Color(0xFF38BDF8),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Slider(
+                        value = minMagnitude.toFloat(),
+                        onValueChange = { onSetMinMagnitude(Math.round(it * 10.0) / 10.0) },
+                        valueRange = 2.0f..6.0f,
+                        steps = 7, // 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Radio de distancia
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Radio de distancia máxima:",
+                            fontSize = 13.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Surface(
+                            color = Color(0xFF10B981).copy(alpha = 0.25f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            val distLabel = if (maxDistanceKm >= 1000.0) "Toda Colombia" else "${maxDistanceKm.toInt()} km"
+                            Text(
+                                text = distLabel,
+                                color = Color(0xFF34D399),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Chips de distancia
+                    val distanceOptions = listOf(
+                        100.0 to "100 km",
+                        250.0 to "250 km",
+                        350.0 to "350 km*",
+                        500.0 to "500 km",
+                        1500.0 to "País"
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        distanceOptions.forEach { (dist, label) ->
+                            val isSelected = Math.abs(maxDistanceKm - dist) < 1.0
+                            OutlinedButton(
+                                onClick = { onSetMaxDistanceKm(dist) },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isSelected) Color(0xFF2563EB) else Color.Transparent,
+                                    contentColor = if (isSelected) Color.White else Color(0xFF94A3B8)
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155)
+                                )
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Switch Sirena de Emergencia
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Sirena Sonora de Emergencia",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Reproduce alarma a alto volumen en sismos confirmados",
+                                fontSize = 11.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                        Switch(
+                            checked = isAudioAlertEnabled,
+                            onCheckedChange = onToggleAudioAlert
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Switch Vibración
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Vibración Háptica Sísmica",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Patrón SOS continuo durante la alerta",
+                                fontSize = 11.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                        Switch(
+                            checked = isVibrationAlertEnabled,
+                            onCheckedChange = onToggleVibrationAlert
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- 2. SISTEMA DE ALERTAS DE TERREMOTOS DE GOOGLE (AEAS) ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = null,
+                            tint = Color(0xFFFBBF24),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Alertas de Terremoto de Android (Google)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color.White
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Android incluye el sistema nativo de Google Earthquake Alerts que usa sensores acelerómetros comunitarios. Sismoalerta complementa esta red con las estaciones sismológicas oficiales del SGC, filtrado geográfico exacto y red SOS familiar.\n\nTe sugerimos mantener ambos sistemas activos para contar con redundancia total.",
+                        fontSize = 11.sp,
+                        color = Color(0xFFCBD5E1),
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val intent = Intent("com.google.android.gms.settings.EARTHQUAKE_ALERT_SETTINGS")
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                try {
+                                    context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                                } catch (e2: Exception) {
+                                    context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color(0xFF0F172A),
+                            contentColor = Color(0xFF38BDF8)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f))
+                    ) {
+                        Icon(imageVector = Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Ver Alertas de Terremoto del Teléfono", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),

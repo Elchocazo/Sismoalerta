@@ -35,7 +35,7 @@ class SeismicMonitoringService : Service(), LocationListener {
     private var wakeLock: PowerManager.WakeLock? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
     private var breadcrumbJob: Job? = null
-    private var onlineMonitoringJob: Job? = null
+
 
     companion object {
         const val CHANNEL_ID = "sismo_vigilance_channel"
@@ -138,75 +138,18 @@ class SeismicMonitoringService : Service(), LocationListener {
 
         _isServiceRunning.value = true
 
-        // Armar el receptor de alarma de respaldo
-        com.example.receiver.SeismicAlarmReceiver.schedulePeriodicCheck(applicationContext)
+        // Armar la suscripción a FCM de alta prioridad
+        SismoFirebaseMessagingService.subscribeToTopic()
 
-        // Register location listener
-        try {
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 0f, this)
-            }
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 0f, this)
-            }
-        } catch (e: SecurityException) {
-            e.printStackTrace()
-        }
-
-        // Start periodic breadcrumb trail recorder (every 60s)
+        // Iniciar grabador de migajas GPS en caso de emergencia activa
         breadcrumbJob?.cancel()
         breadcrumbJob = serviceScope.launch {
             while (_isServiceRunning.value) {
                 delay(60000L)
                 val app = application as? SismoAlertaApp
-                app?.locationRepository?.recordBreadcrumb(isEmergency = false)
-            }
-        }
-
-        // Start 24/7 background monitor for official seismic reports (every 25 seconds)
-        onlineMonitoringJob?.cancel()
-        onlineMonitoringJob = serviceScope.launch {
-            val prefs = getSharedPreferences("sismo_notified_events_cache", Context.MODE_PRIVATE)
-            var notifiedIds = prefs.getStringSet("notified_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
-
-            while (_isServiceRunning.value) {
-                try {
-                    val app = application as? SismoAlertaApp
-                    if (app != null) {
-                        val currentLoc = app.locationRepository.currentLocation.value
-                        val events = app.seismicOnlineFeedRepository.fetchLiveSeismicReports(currentLoc)
-
-                        val now = System.currentTimeMillis()
-                        var newlyNotified = false
-
-                        for (event in events) {
-                            val timeDiff = now - event.timestamp
-                            if (!notifiedIds.contains(event.eventId) && timeDiff in -300000L..(6 * 3600 * 1000L)) {
-                                val isNearbyOrFelt = event.distanceKm <= 150.0 && event.magnitude >= 2.5
-                                val isSignificantRegional = event.distanceKm <= 350.0 && event.magnitude >= 3.5
-                                val isNationalStrong = event.magnitude >= 4.0
-
-                                if (isNearbyOrFelt || isSignificantRegional || isNationalStrong) {
-                                    sendStrongSeismicPushNotification(
-                                        context = applicationContext,
-                                        title = "¡SISMO CONFIRMADO: M ${event.magnitude}!",
-                                        message = "${event.epicenter} (a ${event.distanceKm.toInt()} km). Profundidad: ${event.depthKm.toInt()} km. ¡Atención!"
-                                    )
-                                    newlyNotified = true
-                                }
-
-                                notifiedIds.add(event.eventId)
-                            }
-                        }
-
-                        if (newlyNotified) {
-                            prefs.edit().putStringSet("notified_ids", notifiedIds).apply()
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w("SeismicService", "Error polling seismic feed: ${e.message}")
+                if (app?.nucleusRepository?.isLiveLocationSharingActive?.value == true) {
+                    app.locationRepository.recordBreadcrumb(isEmergency = false)
                 }
-                delay(25000L) // Polling interval
             }
         }
 
@@ -227,9 +170,10 @@ class SeismicMonitoringService : Service(), LocationListener {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // Programar el AlarmReceiver para garantizar vigilancia ininterrumpida sin violar restricciones de Android 12+
-        com.example.receiver.SeismicAlarmReceiver.schedulePeriodicCheck(applicationContext, 1000L)
+        // La recepción de alertas de sismos continúa de forma pasiva a través de FCM
+        SismoFirebaseMessagingService.subscribeToTopic()
     }
+
 
     override fun onDestroy() {
         super.onDestroy()
@@ -247,8 +191,8 @@ class SeismicMonitoringService : Service(), LocationListener {
             e.printStackTrace()
         }
         breadcrumbJob?.cancel()
-        onlineMonitoringJob?.cancel()
     }
+
 
     override fun onBind(intent: Intent?): IBinder? = null
 

@@ -22,7 +22,6 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <application
         android:name=".SismoAlertaApp"
@@ -51,12 +50,22 @@
             </intent-filter>
         </activity>
 
-        <!-- Persistent Seismic & Location Monitoring Service -->
+        <!-- Firebase Cloud Messaging (FCM) High Priority Background Receiver -->
+        <service
+            android:name=".service.SismoFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Emergency Beacon & Live Location Sharing Service (Activated on SOS) -->
         <service
             android:name=".service.SeismicMonitoringService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location" />
+
 
         <!-- 24/7 Background Seismic Alarm Receiver -->
         <receiver
