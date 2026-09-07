@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer Shield Outline -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,18 L82,30 V52 C82,70.5 70,86 54,92 C38,86 26,70.5 26,52 V30 L54,18 Z" />
+    <path
+        android:fillColor="#111111"
+        android:pathData="M54,23 L77,33.5 V52 C77,67.5 66.8,81 54,86.2 C41.2,81 31,67.5 31,52 V33.5 L54,23 Z" />
+    <!-- Seismic pulse line inside shield -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF5252"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M36,54 L44,54 L48,42 L52,66 L57,36 L62,60 L66,54 L72,54" />
+    <path
+        android:fillColor="#FFD54F"
+        android:pathData="M54,32 A4,4 0 1,0 54,40 A4,4 0 1,0 54,32 Z" />
+</vector>

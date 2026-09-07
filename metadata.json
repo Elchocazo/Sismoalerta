@@ -1,0 +1,6 @@
+{
+  "name": "SismoAlerta",
+  "description": "Sistema de alerta sísmica, localización de emergencia y resiliencia familiar en tiempo real con monitoreo acelerométrico, canal de auxilio y cifrado E2EE.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
