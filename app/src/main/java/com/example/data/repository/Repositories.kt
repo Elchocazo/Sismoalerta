@@ -5,6 +5,15 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.location.Location
 import android.os.BatteryManager
+import android.os.Build
+import android.os.Looper
+import android.util.Log
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.example.data.crypto.CryptoUtils
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.BreadcrumbLocation
@@ -76,8 +85,41 @@ class LocationRepository(
     private val _currentLocation = MutableStateFlow<Location?>(null)
     val currentLocation: StateFlow<Location?> = _currentLocation.asStateFlow()
 
+    private val _batteryLevel = MutableStateFlow(getBatteryLevel())
+    val batteryLevel: StateFlow<Int> = _batteryLevel.asStateFlow()
+
+    private val fusedClient: FusedLocationProviderClient? by lazy {
+        try {
+            LocationServices.getFusedLocationProviderClient(context)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     init {
+        registerBatteryMonitor()
         refreshActualDeviceLocation()
+    }
+
+    private fun registerBatteryMonitor() {
+        try {
+            val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            val receiver = object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: Context?, intent: Intent?) {
+                    val updated = getBatteryLevel()
+                    if (updated != _batteryLevel.value) {
+                        _batteryLevel.value = updated
+                    }
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                context.registerReceiver(receiver, filter)
+            }
+        } catch (e: Exception) {
+            Log.w("LocationRepo", "Error al registrar monitor de batería: ${e.message}")
+        }
     }
 
     fun updateCurrentLocation(location: Location) {
@@ -86,42 +128,67 @@ class LocationRepository(
 
     fun refreshActualDeviceLocation() {
         try {
-            val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
-            if (locationManager != null) {
-                val hasFine = context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                val hasCoarse = context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasFine = context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasCoarse = context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-                if (hasFine || hasCoarse) {
-                    val gpsLoc = try { locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER) } catch (e: Exception) { null }
-                    val netLoc = try { locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER) } catch (e: Exception) { null }
-                    val passLoc = try { locationManager.getLastKnownLocation(android.location.LocationManager.PASSIVE_PROVIDER) } catch (e: Exception) { null }
+            if (!hasFine && !hasCoarse) return
 
-                    val validLocations = listOfNotNull(gpsLoc, netLoc, passLoc)
-                    val bestLoc = validLocations.maxByOrNull { it.time }
-                    if (bestLoc != null) {
-                        _currentLocation.value = bestLoc
-                    }
-
-                    // Register listener for continuous high-precision updates
-                    val listener = object : android.location.LocationListener {
-                        override fun onLocationChanged(location: Location) {
-                            val current = _currentLocation.value
-                            if (current == null || location.accuracy <= current.accuracy || (location.time - current.time) > 10000L) {
-                                _currentLocation.value = location
+            // 1. Google Play Services Fused Location (Precisión inmediata y satelital/wifi)
+            fusedClient?.let { client ->
+                try {
+                    client.lastLocation.addOnSuccessListener { loc: Location? ->
+                        if (loc != null) {
+                            val curr = _currentLocation.value
+                            if (curr == null || loc.time >= curr.time) {
+                                _currentLocation.value = loc
                             }
                         }
-                        @Deprecated("Deprecated in Java")
-                        override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
-                        override fun onProviderEnabled(provider: String) {}
-                        override fun onProviderDisabled(provider: String) {}
                     }
+                } catch (e: Exception) {
+                    Log.w("LocationRepo", "Error lastLocation: ${e.message}")
+                }
 
-                    if (locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
-                        locationManager.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 2000L, 0f, listener)
+                try {
+                    client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                        .addOnSuccessListener { freshLoc: Location? ->
+                            if (freshLoc != null) {
+                                _currentLocation.value = freshLoc
+                            }
+                        }
+                } catch (e: Exception) {
+                    Log.w("LocationRepo", "Error getCurrentLocation: ${e.message}")
+                }
+
+                val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000L)
+                    .setMinUpdateDistanceMeters(5f)
+                    .build()
+
+                val callback = object : LocationCallback() {
+                    override fun onLocationResult(result: LocationResult) {
+                        result.lastLocation?.let { loc ->
+                            _currentLocation.value = loc
+                        }
                     }
-                    if (locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
-                        locationManager.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 2000L, 0f, listener)
-                    }
+                }
+
+                try {
+                    client.requestLocationUpdates(req, callback, Looper.getMainLooper())
+                } catch (e: Exception) {
+                    Log.w("LocationRepo", "Error requestLocationUpdates: ${e.message}")
+                }
+            }
+
+            // 2. LocationManager Nativo de Respaldo
+            val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+            if (locationManager != null && _currentLocation.value == null) {
+                val gpsLoc = try { locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER) } catch (e: Exception) { null }
+                val netLoc = try { locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER) } catch (e: Exception) { null }
+                val passLoc = try { locationManager.getLastKnownLocation(android.location.LocationManager.PASSIVE_PROVIDER) } catch (e: Exception) { null }
+
+                val validLocations = listOfNotNull(gpsLoc, netLoc, passLoc)
+                val bestLoc = validLocations.maxByOrNull { it.time }
+                if (bestLoc != null && _currentLocation.value == null) {
+                    _currentLocation.value = bestLoc
                 }
             }
         } catch (e: Exception) {
@@ -130,22 +197,43 @@ class LocationRepository(
     }
 
     fun getBatteryLevel(): Int {
-        val batteryStatus: Intent? = IntentFilter(Intent.ACTION_BATTERY_CHANGED).let { filter ->
-            context.registerReceiver(null, filter)
+        // Prioridad 1: Lectura directa del medidor de hardware de la batería (Kernel/Driver)
+        try {
+            val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+            if (bm != null) {
+                val capacity = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                if (capacity in 1..100) {
+                    return capacity
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("LocationRepo", "Error al leer BATTERY_PROPERTY_CAPACITY: ${e.message}")
         }
-        val level: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        return if (level >= 0 && scale > 0) {
-            (level * 100 / scale.toFloat()).toInt()
-        } else {
-            85 // Fallback default
+
+        // Prioridad 2: Broadcast Intent Sticky del Sistema Operativo
+        try {
+            val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            val batteryStatus: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(null, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                context.registerReceiver(null, filter)
+            }
+            val level: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+            if (level >= 0 && scale > 0) {
+                return (level * 100 / scale.toFloat()).toInt()
+            }
+        } catch (e: Exception) {
+            Log.w("LocationRepo", "Error al leer ACTION_BATTERY_CHANGED: ${e.message}")
         }
+
+        return 50 // Valor medio seguro solo en caso de falla extrema
     }
 
     suspend fun recordBreadcrumb(isEmergency: Boolean = false, statusType: String = "Vigilancia"): BreadcrumbLocation {
         val loc = _currentLocation.value
-        val lat = loc?.latitude ?: 4.6097 // Colombia Default fallback
-        val lng = loc?.longitude ?: -74.0817
+        val lat = loc?.latitude ?: 0.0
+        val lng = loc?.longitude ?: 0.0
         val acc = loc?.accuracy ?: 8.0f
         val battery = getBatteryLevel()
 

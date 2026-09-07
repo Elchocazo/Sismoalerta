@@ -219,6 +219,7 @@ fun MainAppContent(viewModel: MainViewModel) {
     val maxAlertDistanceKm by viewModel.maxAlertDistanceKm.collectAsStateWithLifecycle()
     val isAudioAlertEnabled by viewModel.isAudioAlertEnabled.collectAsStateWithLifecycle()
     val isVibrationAlertEnabled by viewModel.isVibrationAlertEnabled.collectAsStateWithLifecycle()
+    val batteryLevel by viewModel.batteryLevel.collectAsStateWithLifecycle()
 
     val isRefreshingDashboard by viewModel.isRefreshingDashboard.collectAsStateWithLifecycle()
     val isRefreshingFamily by viewModel.isRefreshingFamily.collectAsStateWithLifecycle()
@@ -358,7 +359,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                     contacts = contacts,
                     breadcrumbs = breadcrumbs,
                     alertLogs = alertLogs,
-                    batteryLevel = 85,
+                    batteryLevel = batteryLevel,
                     onAddContact = { name, phone, rel -> viewModel.addContact(name, phone, rel) },
                     onDeleteContact = { viewModel.deleteContact(it) },
                     firestoreSyncStatus = firestoreSyncStatus,
@@ -370,7 +371,9 @@ fun MainAppContent(viewModel: MainViewModel) {
                     onRefreshFamily = { viewModel.refreshFamilyData() },
                     onJoinNucleusCode = { viewModel.joinNucleusByCode(it) },
                     onToggleLiveLocationSharing = { viewModel.toggleLiveLocationSharing(it) },
-                    onPulseCurrentLocation = { viewModel.publishCurrentLocationPulse() }
+                    onPulseCurrentLocation = { viewModel.publishCurrentLocationPulse(forceImmediate = true) },
+                    currentLocation = currentLocation,
+                    currentUserId = viewModel.currentUserId
                 )
 
                 "profile" -> com.example.ui.screens.UserProfileScreen(

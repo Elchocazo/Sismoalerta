@@ -96,7 +96,9 @@ fun FamilyMapScreen(
     onRefreshFamily: () -> Unit = {},
     onJoinNucleusCode: (String) -> Unit = {},
     onToggleLiveLocationSharing: (Boolean) -> Unit = {},
-    onPulseCurrentLocation: () -> Unit = {}
+    onPulseCurrentLocation: () -> Unit = {},
+    currentLocation: android.location.Location? = null,
+    currentUserId: String = ""
 ) {
     val context = LocalContext.current
     var selectedTabIndex by remember { mutableIntStateOf(0) }
@@ -165,7 +167,10 @@ fun FamilyMapScreen(
                     activeNucleus = activeNucleus,
                     activeMembers = activeMembers,
                     userSharingCode = userSharingCode,
-                    onJoinNucleusCode = onJoinNucleusCode
+                    onJoinNucleusCode = onJoinNucleusCode,
+                    currentUserId = currentUserId,
+                    currentLocation = currentLocation,
+                    batteryLevel = batteryLevel
                 )
                 1 -> LiveLocationSharingTab(
                     isLiveLocationSharingActive = isLiveLocationSharingActive,
@@ -176,7 +181,8 @@ fun FamilyMapScreen(
                     contacts = contacts,
                     batteryLevel = batteryLevel,
                     onAddContact = onAddContact,
-                    onDeleteContact = onDeleteContact
+                    onDeleteContact = onDeleteContact,
+                    currentLocation = currentLocation
                 )
             }
         }
@@ -194,7 +200,10 @@ fun NucleiAndGroupTab(
     activeNucleus: NucleusGroup,
     activeMembers: List<NucleusMember>,
     userSharingCode: String,
-    onJoinNucleusCode: (String) -> Unit
+    onJoinNucleusCode: (String) -> Unit,
+    currentUserId: String = "",
+    currentLocation: android.location.Location? = null,
+    batteryLevel: Int = 0
 ) {
     val context = LocalContext.current
     var showJoinDialog by remember { mutableStateOf(false) }
@@ -359,7 +368,12 @@ fun NucleiAndGroupTab(
             }
         } else {
             items(activeMembers) { member ->
-                NucleusMemberCard(member = member)
+                NucleusMemberCard(
+                    member = member,
+                    currentUserId = currentUserId,
+                    currentLocation = currentLocation,
+                    liveBatteryLevel = batteryLevel
+                )
             }
         }
     }
@@ -677,7 +691,8 @@ fun ContactsSOSTab(
     contacts: List<EmergencyContact>,
     batteryLevel: Int,
     onAddContact: (String, String, String) -> Unit,
-    onDeleteContact: (EmergencyContact) -> Unit
+    onDeleteContact: (EmergencyContact) -> Unit,
+    currentLocation: android.location.Location? = null
 ) {
     val context = LocalContext.current
     var showAddDialog by remember { mutableStateOf(false) }
@@ -765,7 +780,11 @@ fun ContactsSOSTab(
                     batteryLevel = batteryLevel,
                     onDelete = { onDeleteContact(contact) },
                     onOpenMap = {
-                        val url = "https://www.google.com/maps/search/?api=1&query=4.6097,-74.0817"
+                        val url = if (currentLocation != null && (currentLocation.latitude != 0.0 || currentLocation.longitude != 0.0)) {
+                            "https://www.google.com/maps/search/?api=1&query=${currentLocation.latitude},${currentLocation.longitude}"
+                        } else {
+                            "https://www.google.com/maps"
+                        }
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                         context.startActivity(intent)
                     },
@@ -793,17 +812,43 @@ fun ContactsSOSTab(
 }
 
 @Composable
-fun NucleusMemberCard(member: NucleusMember) {
+fun NucleusMemberCard(
+    member: NucleusMember,
+    currentUserId: String = "",
+    currentLocation: android.location.Location? = null,
+    liveBatteryLevel: Int = 0
+) {
     val context = LocalContext.current
+    val isMe = currentUserId.isNotBlank() && member.userId == currentUserId
     val isEmergency = member.status.contains("NECESITO AYUDA") || member.status.contains("ATRAPADO")
-    val displayName = com.example.data.repository.NucleusRepository.formatFirstAndLastName(member.name)
+    val rawDisplayName = com.example.data.repository.NucleusRepository.formatFirstAndLastName(member.name)
+    val displayName = if (isMe) "$rawDisplayName (Tú)" else rawDisplayName
+    val effectiveBattery = if (isMe && liveBatteryLevel > 0) liveBatteryLevel else member.batteryLevel
+
+    val isBogotaDummy = kotlin.math.abs(member.latitude - 4.6097) < 0.005 && kotlin.math.abs(member.longitude - (-74.0817)) < 0.005
+    val hasValidCoords = (member.latitude != 0.0 || member.longitude != 0.0) && !isBogotaDummy
+
+    val distanceText: String? = if (hasValidCoords && currentLocation != null) {
+        val results = FloatArray(1)
+        android.location.Location.distanceBetween(
+            currentLocation.latitude, currentLocation.longitude,
+            member.latitude, member.longitude,
+            results
+        )
+        val meters = results[0]
+        if (meters < 1000) {
+            "${meters.toInt()} m"
+        } else {
+            String.format(Locale.US, "%.1f km", meters / 1000f)
+        }
+    } else null
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(14.dp),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (isEmergency) Color(0xFFFF1744) else Color(0xFF334155)
+            if (isEmergency) Color(0xFFFF1744) else if (isMe) Color(0xFF2563EB) else Color(0xFF334155)
         ),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -823,6 +868,7 @@ fun NucleusMemberCard(member: NucleusMember) {
                             .clip(CircleShape)
                             .background(
                                 if (isEmergency) Color(0xFFFF1744).copy(alpha = 0.2f)
+                                else if (isMe) Color(0xFF2563EB).copy(alpha = 0.2f)
                                 else Color(0xFF10B981).copy(alpha = 0.15f)
                             ),
                         contentAlignment = Alignment.Center
@@ -830,7 +876,7 @@ fun NucleusMemberCard(member: NucleusMember) {
                         Icon(
                             imageVector = Icons.Default.Person,
                             contentDescription = null,
-                            tint = if (isEmergency) Color(0xFFFF1744) else Color(0xFF10B981),
+                            tint = if (isEmergency) Color(0xFFFF1744) else if (isMe) Color(0xFF60A5FA) else Color(0xFF10B981),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -882,15 +928,23 @@ fun NucleusMemberCard(member: NucleusMember) {
             Spacer(modifier = Modifier.height(10.dp))
 
             // Distance & Phone Battery Info
+            val gpsLabel = when {
+                hasValidCoords -> "📍 GPS: ${String.format(Locale.US, "%.5f, %.5f", member.latitude, member.longitude)}" +
+                    (if (!isMe && distanceText != null) " • 📏 A $distanceText" else "")
+                isBogotaDummy -> "📍 GPS: Esperando señal real de $rawDisplayName..."
+                else -> "📍 GPS: Esperando señal del dispositivo..."
+            }
+            val batteryLabel = if (effectiveBattery > 0) "🔋 Batería: $effectiveBattery%" else "🔋 Batería: --%"
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "📍 GPS: ${String.format(Locale.US, "%.6f, %.6f", member.latitude, member.longitude)} • 🔋 Batería: ${member.batteryLevel}%",
+                    text = "$gpsLabel • $batteryLabel",
                     fontSize = 11.sp,
-                    color = Color(0xFF94A3B8),
+                    color = if (hasValidCoords) Color(0xFF94A3B8) else Color(0xFFF59E0B),
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -904,6 +958,23 @@ fun NucleusMemberCard(member: NucleusMember) {
             ) {
                 Button(
                     onClick = {
+                        if (isMe) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Estás en tu propia ubicación.",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                            return@Button
+                        }
+                        if (!hasValidCoords) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "⚠️ $rawDisplayName aún no ha emitido su ubicación GPS real. Esperando señal del dispositivo.",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                            return@Button
+                        }
+
                         val latStr = String.format(Locale.US, "%.6f", member.latitude)
                         val lngStr = String.format(Locale.US, "%.6f", member.longitude)
                         val walkingUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$latStr,$lngStr&travelmode=walking")
@@ -918,8 +989,8 @@ fun NucleusMemberCard(member: NucleusMember) {
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF059669),
-                        contentColor = Color.White
+                        containerColor = if (hasValidCoords && !isMe) Color(0xFF059669) else Color(0xFF334155),
+                        contentColor = if (hasValidCoords && !isMe) Color.White else Color(0xFF94A3B8)
                     ),
                     shape = RoundedCornerShape(10.dp),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
@@ -927,7 +998,11 @@ fun NucleusMemberCard(member: NucleusMember) {
                 ) {
                     Icon(imageVector = Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(text = "🚶 IR A PIE", fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text(
+                        text = if (isMe) "📍 TU UBICACIÓN" else if (hasValidCoords) "🚶 IR A PIE" else "⏳ ESPERANDO GPS",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black
+                    )
                 }
 
                 if (member.phone.isNotBlank()) {

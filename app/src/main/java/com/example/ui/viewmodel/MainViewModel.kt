@@ -86,8 +86,9 @@ class MainViewModel(
     val isAudioAlertEnabled: StateFlow<Boolean> = settingsRepo.isAudioAlertEnabled
     val isVibrationAlertEnabled: StateFlow<Boolean> = settingsRepo.isVibrationAlertEnabled
 
-
     val currentLocation: StateFlow<Location?> = locationRepo.currentLocation
+    val batteryLevel: StateFlow<Int> = locationRepo.batteryLevel
+    val currentUserId: String = firestoreSyncRepo.deviceId
     val isServiceRunning: StateFlow<Boolean> = SeismicMonitoringService.isServiceRunning
     val liveMagnitude: StateFlow<Float> = SeismicMonitoringService.liveMagnitude
 
@@ -138,11 +139,35 @@ class MainViewModel(
             e.printStackTrace()
         }
 
+        // Sincronización automática reactiva de ubicación y batería cuando cambien
+        viewModelScope.launch {
+            currentLocation.collect { loc ->
+                if (loc != null) {
+                    publishCurrentLocationPulse(forceImmediate = true)
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            batteryLevel.collect { bat ->
+                if (bat > 0) {
+                    publishCurrentLocationPulse(forceImmediate = true)
+                }
+            }
+        }
+
+        // Pulso inicial garantizado al arrancar la app
+        viewModelScope.launch {
+            delay(1200L)
+            locationRepo.refreshActualDeviceLocation()
+            publishCurrentLocationPulse(forceImmediate = true)
+        }
+
         // Periodically broadcast live location ONLY when sharing is enabled (Zero-cost during peacetime)
         viewModelScope.launch {
             while (true) {
                 if (nucleusRepo.isLiveLocationSharingActive.value) {
-                    publishCurrentLocationPulse()
+                    publishCurrentLocationPulse(forceImmediate = false)
                 }
                 delay(30000L) // Throttled pulse check
             }
@@ -237,39 +262,70 @@ class MainViewModel(
 
         // Propagar el nuevo nombre formateado (Primer nombre y primer apellido) a todos los círculos
         val updatedName = profileData["user_name"] ?: "Usuario"
-        nucleusRepo.updateMemberNameInJoinedNuclei(updatedName)
+        val currentLoc = currentLocation.value
+        val currentBat = locationRepo.getBatteryLevel()
+        nucleusRepo.updateMemberNameInJoinedNuclei(
+            userName = updatedName,
+            latitude = currentLoc?.latitude ?: 0.0,
+            longitude = currentLoc?.longitude ?: 0.0,
+            batteryLevel = currentBat
+        )
 
         _profileSyncVersion.value = System.currentTimeMillis()
     }
 
-    fun publishCurrentLocationPulse() {
+    fun publishCurrentLocationPulse(forceImmediate: Boolean = false) {
         val userPrefs = context.getSharedPreferences("sismo_user_profile_prefs", Context.MODE_PRIVATE)
         val name = userPrefs.getString("user_name", "Usuario SismoAlerta") ?: "Usuario SismoAlerta"
         val loc = currentLocation.value
-        val lat = loc?.latitude ?: 4.6097
-        val lng = loc?.longitude ?: -74.0817
         val bat = locationRepo.getBatteryLevel()
 
-        nucleusRepo.publishLocationToAllNuclei(
-            userName = name,
-            latitude = lat,
-            longitude = lng,
-            batteryLevel = bat,
-            status = currentStatus.value
-        )
+        if (loc != null) {
+            nucleusRepo.publishLocationToAllNuclei(
+                userName = name,
+                latitude = loc.latitude,
+                longitude = loc.longitude,
+                batteryLevel = bat,
+                status = currentStatus.value,
+                forceImmediate = forceImmediate
+            )
+        } else {
+            // Solicitar actualización inmediata al GPS nativo/Fused
+            locationRepo.refreshActualDeviceLocation()
+            val lastBreadcrumb = breadcrumbs.value.lastOrNull()
+            if (lastBreadcrumb != null) {
+                nucleusRepo.publishLocationToAllNuclei(
+                    userName = name,
+                    latitude = lastBreadcrumb.latitude,
+                    longitude = lastBreadcrumb.longitude,
+                    batteryLevel = bat,
+                    status = currentStatus.value,
+                    forceImmediate = forceImmediate
+                )
+            }
+        }
     }
 
     fun joinNucleusByCode(code: String) {
         val userPrefs = context.getSharedPreferences("sismo_user_profile_prefs", Context.MODE_PRIVATE)
         val name = userPrefs.getString("user_name", "Usuario SismoAlerta") ?: "Usuario SismoAlerta"
-        val joined = nucleusRepo.joinNucleus(code, userName = name)
-        publishCurrentLocationPulse()
+        val loc = currentLocation.value
+        val bat = locationRepo.getBatteryLevel()
+        nucleusRepo.joinNucleus(
+            code = code,
+            userName = name,
+            latitude = loc?.latitude ?: 0.0,
+            longitude = loc?.longitude ?: 0.0,
+            batteryLevel = bat
+        )
+        publishCurrentLocationPulse(forceImmediate = true)
     }
 
     fun toggleLiveLocationSharing(enabled: Boolean) {
         nucleusRepo.setLiveLocationSharingActive(enabled)
         if (enabled) {
-            publishCurrentLocationPulse()
+            locationRepo.refreshActualDeviceLocation()
+            publishCurrentLocationPulse(forceImmediate = true)
         }
     }
 
@@ -458,8 +514,8 @@ class MainViewModel(
 
     private suspend fun executeEmergencyBroadcast(status: String) {
         val loc = currentLocation.value
-        val lat = loc?.latitude ?: 4.6097
-        val lng = loc?.longitude ?: -74.0817
+        val lat = loc?.latitude ?: 0.0
+        val lng = loc?.longitude ?: 0.0
         val battery = locationRepo.getBatteryLevel()
 
         locationRepo.recordBreadcrumb(isEmergency = true, statusType = status)

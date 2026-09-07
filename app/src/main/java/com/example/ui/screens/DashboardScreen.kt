@@ -428,7 +428,11 @@ fun GoogleMapsDashboardCard(
                             maxLines = 1
                         )
                         Text(
-                            text = String.format(Locale.getDefault(), "Lat: %.4f, Lng: %.4f", lat, lng),
+                            text = if (hasRealLocation) {
+                                String.format(Locale.getDefault(), "Lat: %.4f, Lng: %.4f", lat, lng)
+                            } else {
+                                "Obteniendo señal satelital GPS..."
+                            },
                             color = Color(0xFF9CA3AF),
                             fontSize = 11.sp,
                             maxLines = 1

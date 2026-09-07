@@ -17,9 +17,9 @@ data class NucleusMember(
     val name: String,
     val phone: String = "",
     val relationship: String = "Miembro",
-    val latitude: Double = 4.6097,
-    val longitude: Double = -74.0817,
-    val batteryLevel: Int = 85,
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    val batteryLevel: Int = 0,
     val status: String = "SANO Y SALVO",
     val isLiveSharing: Boolean = true,
     val lastUpdated: Long = System.currentTimeMillis()

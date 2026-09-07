@@ -35,7 +35,7 @@ class NucleusRepository(
     val joinedNuclei: StateFlow<List<NucleusGroup>> = _joinedNuclei.asStateFlow()
 
     private val _isLiveLocationSharingActive = MutableStateFlow(
-        prefs.getBoolean("is_live_location_sharing_active", false)
+        prefs.getBoolean("is_live_location_sharing_active", true)
     )
     val isLiveLocationSharingActive: StateFlow<Boolean> = _isLiveLocationSharingActive.asStateFlow()
 
@@ -89,7 +89,13 @@ class NucleusRepository(
         prefs.edit().putString("joined_nuclei_codes", codes.joinToString(",")).apply()
     }
 
-    fun joinNucleus(code: String, userName: String): NucleusGroup {
+    fun joinNucleus(
+        code: String,
+        userName: String,
+        latitude: Double = 0.0,
+        longitude: Double = 0.0,
+        batteryLevel: Int = 0
+    ): NucleusGroup {
         val cleanCode = code.trim().uppercase(Locale.ROOT)
         val currentList = _joinedNuclei.value.toMutableList()
 
@@ -108,13 +114,16 @@ class NucleusRepository(
             saveJoinedCodesToPrefs(currentList.map { it.code })
         }
 
-        // Register user in Firestore for this nucleus
+        // Register user in Firestore for this nucleus with actual location if available
         val currentUserId = firestoreSyncRepo.deviceId
         firestoreSyncRepo.joinNucleusInFirestore(
             nucleusCode = cleanCode,
             userId = currentUserId,
             userName = userName,
-            relationship = existing.name
+            relationship = existing.name,
+            latitude = latitude,
+            longitude = longitude,
+            batteryLevel = batteryLevel
         )
 
         return existing
@@ -123,6 +132,7 @@ class NucleusRepository(
     private var lastPublishedLat = 0.0
     private var lastPublishedLng = 0.0
     private var lastPublishedStatus = ""
+    private var lastPublishedBattery = -1
     private var lastPublishedTime = 0L
 
     fun setLiveLocationSharingActive(active: Boolean) {
@@ -138,7 +148,7 @@ class NucleusRepository(
         status: String,
         forceImmediate: Boolean = false
     ) {
-        if (!_isLiveLocationSharingActive.value) return
+        if (!_isLiveLocationSharingActive.value && !forceImmediate) return
 
         val now = System.currentTimeMillis()
         val elapsed = now - lastPublishedTime
@@ -157,19 +167,22 @@ class NucleusRepository(
 
         val distanceMovedMeters = results[0]
         val statusChanged = status != lastPublishedStatus
+        val batteryChanged = Math.abs(batteryLevel - lastPublishedBattery) >= 1
 
-        // Zero-Cost Firebase Strategy: Only write to Firestore if:
-        // 1. Force immediate (SOS / User tap)
-        // 2. User moved > 25 meters
-        // 3. Emergency Status changed
-        // 4. Heartbeat interval exceeded 3 minutes (180,000 ms)
-        if (!forceImmediate && distanceMovedMeters < 25f && !statusChanged && elapsed < 180000L) {
+        // Estrategia eficiente de Firestore: Publicar si:
+        // 1. Es inmediato (forceImmediate: tap de usuario, arranque, SOS, pull-to-refresh)
+        // 2. Se movió más de 10 metros
+        // 3. Cambió el estado de auxilio
+        // 4. Cambió la batería en al menos 1%
+        // 5. Han pasado más de 60 segundos
+        if (!forceImmediate && distanceMovedMeters < 10f && !statusChanged && !batteryChanged && elapsed < 60000L) {
             return
         }
 
         lastPublishedLat = latitude
         lastPublishedLng = longitude
         lastPublishedStatus = status
+        lastPublishedBattery = batteryLevel
         lastPublishedTime = now
 
         val currentUserId = firestoreSyncRepo.deviceId
@@ -192,7 +205,12 @@ class NucleusRepository(
     /**
      * Actualiza el nombre del usuario en todos los círculos y núcleos activos en Firestore
      */
-    fun updateMemberNameInJoinedNuclei(userName: String) {
+    fun updateMemberNameInJoinedNuclei(
+        userName: String,
+        latitude: Double = 0.0,
+        longitude: Double = 0.0,
+        batteryLevel: Int = 0
+    ) {
         val currentUserId = firestoreSyncRepo.deviceId
         val formatted = formatFirstAndLastName(userName)
         _joinedNuclei.value.forEach { group ->
@@ -200,7 +218,10 @@ class NucleusRepository(
                 nucleusCode = group.code,
                 userId = currentUserId,
                 userName = formatted,
-                relationship = group.name
+                relationship = group.name,
+                latitude = latitude,
+                longitude = longitude,
+                batteryLevel = batteryLevel
             )
         }
     }

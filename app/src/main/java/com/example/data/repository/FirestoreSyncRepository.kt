@@ -161,9 +161,9 @@ class FirestoreSyncRepository(private val context: Context) {
                         val name = doc.getString("name") ?: "Miembro"
                         val phone = doc.getString("phone") ?: ""
                         val rel = doc.getString("relationship") ?: "Miembro"
-                        val lat = doc.getDouble("latitude") ?: 4.6097
-                        val lng = doc.getDouble("longitude") ?: -74.0817
-                        val bat = doc.getLong("batteryLevel")?.toInt() ?: 85
+                        val lat = doc.getDouble("latitude") ?: 0.0
+                        val lng = doc.getDouble("longitude") ?: 0.0
+                        val bat = doc.getLong("batteryLevel")?.toInt() ?: 0
                         val st = doc.getString("status") ?: "SANO Y SALVO"
                         val isSharing = doc.getBoolean("isLiveSharing") ?: true
                         val ts = doc.getLong("lastUpdated") ?: System.currentTimeMillis()
@@ -200,27 +200,51 @@ class FirestoreSyncRepository(private val context: Context) {
         nucleusCode: String,
         userId: String,
         userName: String,
-        relationship: String = "Miembro"
+        relationship: String = "Miembro",
+        latitude: Double = 0.0,
+        longitude: Double = 0.0,
+        batteryLevel: Int = 0
     ) {
         val nucleusDoc = hashMapOf(
             "code" to nucleusCode,
             "lastJoinedAt" to System.currentTimeMillis()
         )
-        firestore?.collection("nuclei")?.document(nucleusCode)?.set(nucleusDoc)
+        firestore?.collection("nuclei")?.document(nucleusCode)?.set(nucleusDoc, com.google.firebase.firestore.SetOptions.merge())
 
-        // Add member document
-        publishMemberLocationToNucleus(
-            nucleusCode = nucleusCode,
-            userId = userId,
-            userName = userName,
-            phone = "",
-            relationship = relationship,
-            latitude = 4.6097,
-            longitude = -74.0817,
-            batteryLevel = 85,
-            status = "SANO Y SALVO",
-            isLiveSharing = true
-        )
+        // Si tenemos coordenadas reales, publicarlas de inmediato
+        if (latitude != 0.0 && longitude != 0.0) {
+            publishMemberLocationToNucleus(
+                nucleusCode = nucleusCode,
+                userId = userId,
+                userName = userName,
+                phone = "",
+                relationship = relationship,
+                latitude = latitude,
+                longitude = longitude,
+                batteryLevel = if (batteryLevel > 0) batteryLevel else 50,
+                status = "SANO Y SALVO",
+                isLiveSharing = true
+            )
+        } else {
+            // Si aún no hay GPS, no sobreescribir con Bogotá. Hacer merge para preservar ubicación previa si existe.
+            val memberDoc = hashMapOf<String, Any>(
+                "userId" to userId,
+                "name" to userName,
+                "phone" to "",
+                "relationship" to relationship,
+                "status" to "SANO Y SALVO",
+                "isLiveSharing" to true,
+                "lastUpdated" to System.currentTimeMillis()
+            )
+            if (batteryLevel > 0) {
+                memberDoc["batteryLevel"] = batteryLevel
+            }
+            firestore?.collection("nuclei")
+                ?.document(nucleusCode)
+                ?.collection("members")
+                ?.document(userId)
+                ?.set(memberDoc, com.google.firebase.firestore.SetOptions.merge())
+        }
 
         // Start listening to real-time updates for this nucleus
         startListeningToNucleusMembers(nucleusCode)
