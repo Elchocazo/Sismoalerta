@@ -77,7 +77,8 @@ class MainActivity : ComponentActivity() {
 
         requestRequiredPermissions()
         startMonitoringServiceIfAllowed()
-        com.example.receiver.SeismicAlarmReceiver.schedulePeriodicCheck(this)
+        // Cancelar cualquier alarma exacta legacy agresiva para permitir el reposo de batería Doze
+        com.example.receiver.SeismicAlarmReceiver.cancelPeriodicCheck(this)
 
         val app = application as SismoAlertaApp
 
@@ -340,7 +341,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                     onToggleService = { viewModel.toggleService() },
                     latestSeismicEvent = latestSeismicEvent,
                     seismicEvents = seismicEvents,
-                    batteryLevel = 85,
+                    batteryLevel = batteryLevel,
                     onTriggerPanic = { viewModel.triggerPanicAlert() },
                     isTrappedBeaconActive = isTrappedBeaconActive,
                     onStopTrappedBeacon = { viewModel.stopTrappedBeacon() },

@@ -50,6 +50,18 @@ class SeismicMonitoringService : Service(), LocationListener {
         val liveMagnitude = _liveMagnitude.asStateFlow()
 
         fun sendStrongSeismicPushNotification(context: Context, title: String, message: String) {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            try {
+                @Suppress("DEPRECATION")
+                val wakeLock = powerManager?.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
+                    "SismoAlerta:EmergencyDisplayWakeLock"
+                )
+                wakeLock?.acquire(10000L) // Despertar pantalla de forma segura durante 10s ante sismo crítico
+            } catch (e: Exception) {
+                Log.w("SeismicMonitoringService", "No se pudo despertar pantalla: ${e.message}")
+            }
+
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
             // Ensure High Priority Notification Channel is created before posting notification
@@ -112,13 +124,8 @@ class SeismicMonitoringService : Service(), LocationListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        try {
-            if (wakeLock?.isHeld == false) {
-                wakeLock?.acquire()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // En Android moderno, el Foreground Service ya goza de máxima prioridad sin requerir WakeLock permanente.
+        // Se evita wakeLock.acquire() continuo para permitir que el CPU entre en Doze Mode (Deep Sleep).
 
         val notification = buildForegroundNotification("Vigilancia SGC en Vivo (24/7)")
         try {
@@ -138,14 +145,14 @@ class SeismicMonitoringService : Service(), LocationListener {
 
         _isServiceRunning.value = true
 
-        // Armar la suscripción a FCM de alta prioridad
+        // Armar la suscripción a FCM de alta prioridad (0% consumo de batería en reposo)
         SismoFirebaseMessagingService.subscribeToTopic()
 
-        // Iniciar grabador de migajas GPS en caso de emergencia activa
+        // Iniciar grabador periódico eficiente de migajas (filtrado por movimiento real)
         breadcrumbJob?.cancel()
         breadcrumbJob = serviceScope.launch {
             while (_isServiceRunning.value) {
-                delay(60000L)
+                delay(3 * 60 * 1000L) // Comprobación cada 3 minutos (solo graba si se movió >= 50m o pasaron 15 min)
                 val app = application as? SismoAlertaApp
                 if (app?.nucleusRepository?.isLiveLocationSharingActive?.value == true) {
                     app.locationRepository.recordBreadcrumb(isEmergency = false)

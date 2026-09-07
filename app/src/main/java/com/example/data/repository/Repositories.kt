@@ -122,10 +122,20 @@ class LocationRepository(
         }
     }
 
+    private var activeLocationCallback: LocationCallback? = null
+    private var lastRecordedBreadcrumbLat = 0.0
+    private var lastRecordedBreadcrumbLng = 0.0
+    private var lastRecordedBreadcrumbTime = 0L
+
     fun updateCurrentLocation(location: Location) {
         _currentLocation.value = location
     }
 
+    /**
+     * Obtiene la ubicación del dispositivo con impacto casi nulo en batería:
+     * 1. Consulta lastLocation en caché de Google Play Services (0% consumo de batería).
+     * 2. Si es necesario, pide una única lectura balanceada (Wifi/Torres) que apaga el radio de inmediato.
+     */
     fun refreshActualDeviceLocation() {
         try {
             val hasFine = context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -133,7 +143,7 @@ class LocationRepository(
 
             if (!hasFine && !hasCoarse) return
 
-            // 1. Google Play Services Fused Location (Precisión inmediata y satelital/wifi)
+            // 1. Google Play Services Fused Location (0% consumo de batería)
             fusedClient?.let { client ->
                 try {
                     client.lastLocation.addOnSuccessListener { loc: Location? ->
@@ -148,8 +158,9 @@ class LocationRepository(
                     Log.w("LocationRepo", "Error lastLocation: ${e.message}")
                 }
 
+                // 2. Consulta puntual de baja potencia que apaga el chip de inmediato al terminar
                 try {
-                    client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                    client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
                         .addOnSuccessListener { freshLoc: Location? ->
                             if (freshLoc != null) {
                                 _currentLocation.value = freshLoc
@@ -158,27 +169,9 @@ class LocationRepository(
                 } catch (e: Exception) {
                     Log.w("LocationRepo", "Error getCurrentLocation: ${e.message}")
                 }
-
-                val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000L)
-                    .setMinUpdateDistanceMeters(5f)
-                    .build()
-
-                val callback = object : LocationCallback() {
-                    override fun onLocationResult(result: LocationResult) {
-                        result.lastLocation?.let { loc ->
-                            _currentLocation.value = loc
-                        }
-                    }
-                }
-
-                try {
-                    client.requestLocationUpdates(req, callback, Looper.getMainLooper())
-                } catch (e: Exception) {
-                    Log.w("LocationRepo", "Error requestLocationUpdates: ${e.message}")
-                }
             }
 
-            // 2. LocationManager Nativo de Respaldo
+            // 3. LocationManager Nativo de Respaldo solo si aún no hay coordenadas
             val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
             if (locationManager != null && _currentLocation.value == null) {
                 val gpsLoc = try { locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER) } catch (e: Exception) { null }
@@ -193,6 +186,52 @@ class LocationRepository(
             }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    /**
+     * Inicia actualizaciones continuas controladas y seguras sin fugas de hardware.
+     */
+    fun startContinuousLocationUpdates(highAccuracy: Boolean = false) {
+        try {
+            val hasFine = context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasCoarse = context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!hasFine && !hasCoarse) return
+
+            stopContinuousLocationUpdates()
+
+            fusedClient?.let { client ->
+                val priority = if (highAccuracy) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY
+                val interval = if (highAccuracy) 10000L else 60000L
+                val minDistance = if (highAccuracy) 5f else 30f
+
+                val req = LocationRequest.Builder(priority, interval)
+                    .setMinUpdateDistanceMeters(minDistance)
+                    .build()
+
+                val callback = object : LocationCallback() {
+                    override fun onLocationResult(result: LocationResult) {
+                        result.lastLocation?.let { loc ->
+                            _currentLocation.value = loc
+                        }
+                    }
+                }
+                activeLocationCallback = callback
+                client.requestLocationUpdates(req, callback, Looper.getMainLooper())
+            }
+        } catch (e: Exception) {
+            Log.w("LocationRepo", "Error en startContinuousLocationUpdates: ${e.message}")
+        }
+    }
+
+    fun stopContinuousLocationUpdates() {
+        try {
+            activeLocationCallback?.let { callback ->
+                fusedClient?.removeLocationUpdates(callback)
+                activeLocationCallback = null
+            }
+        } catch (e: Exception) {
+            Log.w("LocationRepo", "Error al remover LocationCallback: ${e.message}")
         }
     }
 
@@ -230,19 +269,35 @@ class LocationRepository(
         return 50 // Valor medio seguro solo en caso de falla extrema
     }
 
-    suspend fun recordBreadcrumb(isEmergency: Boolean = false, statusType: String = "Vigilancia"): BreadcrumbLocation {
+    suspend fun recordBreadcrumb(isEmergency: Boolean = false, statusType: String = "Vigilancia"): BreadcrumbLocation? {
         val loc = _currentLocation.value
         val lat = loc?.latitude ?: 0.0
         val lng = loc?.longitude ?: 0.0
         val acc = loc?.accuracy ?: 8.0f
         val battery = getBatteryLevel()
+        val now = System.currentTimeMillis()
+
+        // En condiciones normales de paz, evitar escrituras y tráfico de red si el usuario está inmóvil
+        if (!isEmergency && lastRecordedBreadcrumbLat != 0.0 && lastRecordedBreadcrumbLng != 0.0 && lat != 0.0 && lng != 0.0) {
+            val results = FloatArray(1)
+            Location.distanceBetween(lastRecordedBreadcrumbLat, lastRecordedBreadcrumbLng, lat, lng, results)
+            val distanceMovedMeters = results[0]
+            val elapsed = now - lastRecordedBreadcrumbTime
+            if (distanceMovedMeters < 50f && elapsed < 15 * 60 * 1000L) {
+                return null // Inmóvil y menos de 15 min: ahorrar base de datos, radio y batería
+            }
+        }
+
+        lastRecordedBreadcrumbLat = lat
+        lastRecordedBreadcrumbLng = lng
+        lastRecordedBreadcrumbTime = now
 
         val breadcrumb = BreadcrumbLocation(
             latitude = lat,
             longitude = lng,
             accuracy = acc,
             batteryLevel = battery,
-            timestamp = System.currentTimeMillis(),
+            timestamp = now,
             isEmergencyPoint = isEmergency
         )
         breadcrumbDao.insertBreadcrumb(breadcrumb)

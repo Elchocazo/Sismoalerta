@@ -617,6 +617,10 @@ class MainViewModel(
         settingsRepo.setVibrationAlertEnabled(enabled)
     }
 
+    override fun onCleared() {
+        super.onCleared()
+        locationRepo.stopContinuousLocationUpdates()
+    }
 
     class Factory(
         private val seismicRepo: SeismicRepository,

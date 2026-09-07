@@ -24,10 +24,10 @@ class SeismicAlarmReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_CHECK_SEISMIC_FEEDS = "com.example.ACTION_CHECK_SEISMIC_FEEDS"
         private const val ALARM_REQUEST_CODE = 4001
-        private const val CHECK_INTERVAL_MS = 25000L // 25 segundos
+        private const val CHECK_INTERVAL_MS = 15 * 60 * 1000L // 15 minutos (amigable con la batería y Doze Mode)
 
         /**
-         * Programa la siguiente verificación periódica usando AlarmManager de alta precisión.
+         * Programa verificación periódica de cortesía de bajo impacto energético.
          */
         fun schedulePeriodicCheck(context: Context, delayMs: Long = CHECK_INTERVAL_MS) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
@@ -41,28 +41,17 @@ class SeismicAlarmReceiver : BroadcastReceiver() {
 
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(
+                    alarmManager.setAndAllowWhileIdle(
                         AlarmManager.ELAPSED_REALTIME_WAKEUP,
                         triggerAtMillis,
                         pendingIntent
                     )
                 } else {
-                    alarmManager.setExact(
-                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                    )
-                }
-            } catch (e: SecurityException) {
-                // Fallback si no tiene permiso de alarmas exactas
-                try {
                     alarmManager.set(
                         AlarmManager.ELAPSED_REALTIME_WAKEUP,
                         triggerAtMillis,
                         pendingIntent
                     )
-                } catch (e2: Exception) {
-                    Log.w("SeismicAlarmReceiver", "No se pudo programar alarma: ${e2.message}")
                 }
             } catch (e: Exception) {
                 Log.w("SeismicAlarmReceiver", "Error en schedulePeriodicCheck: ${e.message}")
@@ -90,7 +79,7 @@ class SeismicAlarmReceiver : BroadcastReceiver() {
             PowerManager.PARTIAL_WAKE_LOCK,
             "SismoAlerta:SeismicAlarmWakeLock"
         )
-        wakeLock?.acquire(20000L) // Mantener la CPU despierta 20s para completar la consulta de red
+        wakeLock?.acquire(10000L) // Mantener la CPU despierta máximo 10s para completar la consulta de red
 
         val pendingResult = goAsync()
 
